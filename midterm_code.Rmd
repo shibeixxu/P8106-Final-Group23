@@ -1,0 +1,265 @@
+---
+title: "midterm"
+author: "Hao Zheng(hz2772)"
+date: "3/24/2022"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+load package
+```{r}
+library(caret)
+library(ellipse)
+library(vip)
+library(pdp)
+library(klaR)
+library(pROC)
+library(AppliedPredictiveModeling)
+library(corrplot)
+library(tidyverse)
+library(rpart.plot)
+library(party)
+```
+
+# load data
+```{r}
+data <- read.csv("~/Desktop/P8106 DS2/midterm/breast-cancer.csv") 
+data <- data[,-1]
+set.seed(2022)
+rowTrain <- createDataPartition(y = data$diagnosis, p = 0.7, list = FALSE)
+trainData <- data[rowTrain, ]
+testData <- data[-rowTrain, ]
+```
+
+# Exploratory Analysis And Visulization
+## Predictors Summary
+```{r, warning=FALSE}
+theme1 <- transparentTheme(trans = .22)
+trellis.par.set(theme1)
+featurePlot(x = data[, c(23,24,25,28)],
+            y = as.factor(data$diagnosis),
+            scales = list(x = list(relation = "free"),
+                          y = list(relation = "free")),
+            plot = "ellipse",
+            auto.key = list(columns = 2))
+```
+## Check Correlationship
+```{r}
+cordata <- model.matrix(diagnosis ~ ., data)[ ,-1]
+x <- cordata[rowTrain,]
+# vector of response
+corrplot(cor(x), method = "circle",type = "full",tl.cex=0.5)
+```
+
+# Modeling
+## logistic regression
+```{r,warning=FALSE}
+contrasts(as.factor(data$diagnosis))
+ctrl <- trainControl(method = "repeatedcv",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+set.seed(2022)
+model.glm <- train(x = data[rowTrain,2:31],
+                   y = data$diagnosis[rowTrain],
+                   method = "glm",
+                   metric = "ROC",
+                   trControl = ctrl)
+
+glm.pred.prob <- predict(model.glm, newdata = data[-rowTrain,],
+                         type = "prob")[,2]
+glm.test.pred <- rep("B", length(glm.pred.prob))
+glm.test.pred[glm.pred.prob>0.5] <- "M"
+
+confusionMatrix(data = as.factor(glm.test.pred),
+                reference = as.factor(data$diagnosis[-rowTrain]),
+                positive = "M")
+
+
+```
+
+## penalized logistic regression
+```{r}
+glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 21),
+                        .lambda = exp(seq(-8, 2, length = 50)))
+set.seed(2022)
+model.glmn <- train(x = data[rowTrain,2:31],
+                    y = data$diagnosis[rowTrain],
+                    method = "glmnet",
+                    tuneGrid = glmnGrid,
+                    metric = "ROC",
+                    trControl = ctrl)
+
+model.glmn$bestTune
+model.glmn$finalModel
+as.matrix(coef(model.glmn$finalModel, s=model.glmn$bestTune$lambda)) %>% knitr::kable()
+myCol<- rainbow(25)
+myPar <- list(superpose.symbol = list(col = myCol),
+              superpose.line = list(col = myCol))
+
+plot(model.glmn, par.settings = myPar, xTrans = function(x) log(x))
+```
+
+
+## mars
+```{r,warning=FALSE}
+mars_grid <- expand.grid(degree = 1:3, nprune = 2:20)
+set.seed(2022)
+model.mars <- train(x = data[rowTrain,2:31],
+                  y = data$diagnosis[rowTrain],
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  trControl = ctrl)
+plot(model.mars)
+model.mars$bestTune
+#pdp::partial(model.mars, pred.var = "diagnosis", grid.resolution = 200) %>% autoplot()
+vip(model.mars$finalModel)
+
+mars.pred.prob <- predict(model.mars, newdata = data[-rowTrain,],type = "prob")[,2]
+
+mars.test.pred <- rep("B", length(mars.pred.prob))
+mars.test.pred[mars.pred.prob>0.5] <- "M"
+
+confusionMatrix(data = as.factor(mars.test.pred),
+                reference = as.factor(data$diagnosis[-rowTrain]),
+                positive = "M")
+```
+
+## LDA 
+```{r,message=FALSE}
+# Exploratory analysis: LDA based on every combination of two variables
+partimat(as.factor(diagnosis) ~ concave.points_worst + perimeter_worst, 
+         data = data, subset = rowTrain, method = "lda")
+
+
+lda.fit <- lda(diagnosis~., data = data,
+               subset = rowTrain)
+plot(lda.fit)
+
+##caret
+set.seed(2022)
+model.lda <- train(x = data[rowTrain,2:31],
+                   y = data$diagnosis[rowTrain],
+                   method = "lda",
+                   metric = "ROC",
+                   trControl = ctrl)
+lda.pred.prob <- predict(model.lda, newdata = data[-rowTrain,],type = "prob")[,2]
+
+lda.test.pred <- rep("B", length(lda.pred.prob))
+lda.test.pred[lda.pred.prob>0.5] <- "M"
+
+confusionMatrix(data = as.factor(lda.test.pred),
+                reference = as.factor(data$diagnosis[-rowTrain]),
+                positive = "M")
+```
+
+## qda
+```{r}
+set.seed(2022)
+model.qda <- train(x = data[rowTrain,2:31],
+                   y = data$diagnosis[rowTrain],
+                   method = "qda",
+                   metric = "ROC",
+                   trControl = ctrl)
+
+qda.pred.prob <- predict(model.qda, newdata = data[-rowTrain,],type = "prob")[,2]
+qda.test.pred <- rep("B", length(qda.pred.prob))
+qda.test.pred[qda.pred.prob>0.5] <- "M"
+
+confusionMatrix(data = as.factor(qda.test.pred),
+                reference = as.factor(data$diagnosis[-rowTrain]),
+                positive = "M")
+```
+
+## naive bayes
+```{r,warning=FALSE}
+nbGrid <- expand.grid(usekernel = c(FALSE,TRUE), fL = 1, adjust = seq(.2, 3, by = .2))
+set.seed(2022)
+model.nb <- train(x = data[rowTrain,2:31],
+                  y = data$diagnosis[rowTrain],
+                  method = "nb",
+                  tuneGrid = nbGrid,
+                  metric = "ROC",
+                  trControl = ctrl)
+plot(model.nb)
+nb.pred.prob <- predict(model.nb, newdata = data[-rowTrain,],type = "prob")[,2]
+
+nb.test.pred <- rep("B", length(nb.pred.prob))
+nb.test.pred[nb.pred.prob>0.5] <- "M"
+
+confusionMatrix(data = as.factor(nb.test.pred),
+                reference = as.factor(data$diagnosis[-rowTrain]),
+                positive = "M")
+```
+
+## rpart
+```{r}
+set.seed(2022)
+model.rpart <- train(diagnosis ~ . ,
+                   data,
+                   subset = rowTrain,
+                   method = "rpart",
+                   tuneGrid = data.frame(cp = exp(seq(-6,-3, len = 50))),
+                   trControl = ctrl,
+                   metric = "ROC")
+ggplot(model.rpart, highlight = TRUE)
+rpart.plot(model.rpart$finalModel)
+```
+
+## cit
+```{r}
+set.seed(2022)
+model.ctree <- train(diagnosis ~ . ,
+                     data,
+                     subset = rowTrain,
+                     method = "ctree",
+                     tuneGrid = data.frame(mincriterion = 1-exp(seq(-2, -1, length = 50))),
+                     metric = "ROC",
+                     trControl = ctrl)
+ggplot(model.ctree, highlight = TRUE)
+plot(model.ctree$finalModel)
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+res <- resamples(list(LOG = model.glm, PLOG= model.glmn, MARS=model.mars, LDA = model.lda, QDA = model.qda, NB = model.nb, RPART=model.rpart, CTREE=model.ctree))
+com = summary(res)
+bwplot(res,metric="ROC", colr='9',main='ROC Compare')
+
+com$statistics[1] %>% knitr::kable()
+qda.pred <- predict(model.qda, newdata = data[-rowTrain,], type = "prob")[,2]
+lda.pred <- predict(model.lda, newdata = data[-rowTrain,], type = "prob")[,2]
+nb.pred <- predict(model.nb, newdata = data[-rowTrain,], type = "prob")[,2]
+mars.pred <- predict(model.mars, newdata = data[-rowTrain,], type = "prob")[,2]
+glm.pred <- predict(model.glm, newdata = data[-rowTrain,], type = "prob")[,2]
+glmn.pred <- predict(model.glmn, newdata = data[-rowTrain,], type = "prob")[,2]
+rpart.pred <- predict(model.rpart, newdata = data[-rowTrain,],type = "prob")[,2]
+ctree.pred <- predict(model.ctree, newdata = data[-rowTrain,],type = "prob")[,2]
+
+roc.lda <- roc(data$diagnosis[-rowTrain], lda.pred)
+roc.qda <- roc(data$diagnosis[-rowTrain], qda.pred)
+roc.nb <- roc(data$diagnosis[-rowTrain], nb.pred)
+roc.mars <- roc(data$diagnosis[-rowTrain], mars.pred)
+roc.glm <- roc(data$diagnosis[-rowTrain], glm.pred)
+roc.glmn <- roc(data$diagnosis[-rowTrain], glmn.pred)
+roc.rpart <- roc(data$diagnosis[-rowTrain], rpart.pred)
+roc.ctree <- roc(data$diagnosis[-rowTrain], ctree.pred)
+
+auc <- c(roc.lda$auc[1], roc.qda$auc[1], roc.nb$auc[1], roc.mars$auc[1], roc.glm$auc[1], roc.glmn$auc[1], roc.rpart$auc[1], roc.ctree$auc[1])
+plot(roc.lda, legacy.axes = TRUE, col = rgb(255, 102,102, 100, maxColorValue = 255))
+plot(roc.qda, add = TRUE, col = rgb(255, 128, 0, 100, maxColorValue = 255))
+plot(roc.nb, add = TRUE, col = rgb(0, 204,102, 100, maxColorValue = 255))
+plot(roc.mars, add = TRUE, col = rgb(0,128,255, 100, maxColorValue = 255))
+plot(roc.glm, add = TRUE, col = rgb(127,0,255, 100, maxColorValue = 255))
+plot(roc.glmn, add = TRUE, col = rgb(34,139,34, 100, maxColorValue = 255))
+plot(roc.rpart, add = TRUE, col = rgb(186,85,211,100, maxColorValue = 255))
+plot(roc.ctree, add = TRUE, col = rgb(65,105,225,100, maxColorValue = 255))
+modelNames <- c("lda","qda","nb","mars","glm","glmn","rpart","ctree")
+legend("bottomright", legend = paste0(modelNames, ": ", round(auc,3)),
+col = 1:8, lwd = 2)
+```
+
+
+
+
+

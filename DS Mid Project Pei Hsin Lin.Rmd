@@ -1,0 +1,279 @@
+---
+title: "Mid DS"
+author: "Pei Hsin Lin"
+date: "3/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(RNHANES)
+library(tidyverse)
+library(leaps)
+library(FNN)
+library(caret)
+library(pls)
+library(doBy)
+library(patchwork)
+library(splines)
+library(mgcv)
+library(glmnet)
+library(mlbench)
+library(pROC)
+library(pdp)
+library(vip)
+library(AppliedPredictiveModeling)
+library(MASS)
+library(klaR)
+library(caret)
+library(MASS)
+library(pdp)
+library(magrittr)
+library(corrplot)
+library(rpart)
+library(rpart.plot)
+```
+
+```{r}
+# Read and clean the data
+dat<-read.csv("/Users/lin/Desktop/breast-cancer.csv")
+dat <- dat[,-1]
+dat<- dat %>% 
+  janitor::clean_names() 
+dat$diagnosis<- as.factor(dat$diagnosis)
+contrasts(dat$diagnosis)
+dat %>%
+  mutate_if(is.character,as.numeric) %>%
+  str()
+
+
+# separate data into training and testing
+set.seed(2022)
+rowTrain <- createDataPartition(y = dat$diagnosis, p = 0.7, list = FALSE)
+train<- dat[rowTrain, ]
+test<- dat[-rowTrain, ]
+# training data
+x1<- model.matrix(diagnosis ~.,train)[,-1]
+y1<- train$diagnosis
+# test data
+x2<- model.matrix(diagnosis ~.,test)[,-1]
+y2<- test$diagnosis
+```
+
+The predictors of this data have ten main characteristics, including radius, texture, perimeter, 
+area, smoothness, compactness, concavity, concave points, symmetry, fractal_dimension.
+Furthermore, this data set contains three features of these ten characteristics: mean, standard error, and worst(largest).
+Therefore, we have 30 predictors in this data with ten characteristics with three features. Our primary outcome is whether the tumors are malignant or benign.
+
+
+```{r}
+dat <- na.omit(dat)
+theme1 <- transparentTheme(trans = .4)
+trellis.par.set(theme1)
+featurePlot(x=x1,
+y=y1,
+scales = list(x = list(relation = "free"),
+y = list(relation = "free")),
+plot = "density", pch = "|",
+auto.key = list(columns = 2))
+```
+
+```{r}
+# correlation matrix
+corrplot(cor(x1), method = "circle", type = "full")
+```
+
+```{r}
+# variables selection using bic
+regsubsetsObj <- regsubsets(diagnosis ~., data = dat,
+method = "exhaustive", nbest = 1)
+plot(regsubsetsObj, scale = "bic")
+```
+
+Since the model have predictors that highly correlated, we firsy consider more effective to deal with groups of highly correlated
+predictors
+
+#logistic 
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv",  number = 10, repeats = 3, 
+summaryFunction = twoClassSummary,
+classProbs = TRUE)
+
+dat$diagnosis<- as.factor(dat$diagnosis)
+contrasts(dat$diagnosis)
+
+set.seed(2022)
+glm.fit <- train(x =x1,
+y =y1,
+method = "glm",metric = "ROC",trControl = ctrl)
+
+glm.pred <- predict(glm.fit, newdata = dat[-rowTrain,])
+confusionMatrix(data = as.factor(glm.pred),reference = dat$diagnosis[-rowTrain],
+positive = "M")
+
+summary(glm.fit )
+```
+
+#Mars
+```{r}
+mars_grid <- expand.grid(degree = 1:10,nprune = 2:30)
+set.seed(2022)
+
+#final model
+mars.fit <- train(x=x1,y=y1, method = "earth",
+tuneGrid = mars_grid,
+trControl = ctrl)
+ggplot(mars.fit)
+mars.fit$bestTune
+coef(mars.fit$finalModel)
+coef(mars.fit$finalModel) %>% knitr::kable(digits = 10)
+
+pred.mars<- predict(mars.fit, newdata=x2)
+confusionMatrix(data = as.factor(pred.mars),reference = dat$diagnosis[-rowTrain],
+positive = "M")
+
+
+```
+#LDA
+```{r}
+# Exploratory analysis: LDA based on every combination of two variables
+
+Lda_plot<-partimat(diagnosis~. ,data = dat, subset = rowTrain, method = "lda")
+```
+
+```{r}
+dat$diagnosis<- as.factor(dat$diagnosis)
+ctrl <- trainControl(method = "repeatedcv",
+summaryFunction = twoClassSummary,
+classProbs = TRUE)
+set.seed(2)
+
+model.lda <- train(x =x1,
+y = y1,
+method = "lda",
+metric = "ROC",
+trControl = ctrl)
+
+
+
+
+lda.pred <- predict(model.lda, newdata = dat[-rowTrain,])
+confusionMatrix(data = as.factor(lda.pred),reference = dat$diagnosis[-rowTrain],positive = "M")
+
+lda.fit <- lda(diagnosis~., data = dat,
+subset = rowTrain)
+plot(1:30)
+plot(lda.fit)
+lda.fit$scaling %>% knitr::kable(digits = 10)
+```
+
+#penalized Logistic 
+```{r}
+ctrl <- trainControl(method = "repeatedcv",  number = 10, repeats = 5, 
+summaryFunction = twoClassSummary,
+classProbs = TRUE)
+
+glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 21),
+.lambda = exp(seq(-8, 1, length = 50)))
+set.seed(2022) 
+
+model.glmn<- train(x = x1,
+y = y1,method = "glmnet",tuneGrid = glmnGrid,
+metric = "ROC",
+trControl = ctrl)
+plot(model.glmn,xTrans = function(x) log(x))
+model.glmn$bestTune
+coef(model.glmn$finalModel, s=model.glmn$bestTune$lambda)
+exp(coef(model.glmn$finalModel, s=model.glmn$bestTune$lambda))
+glmn.pred <- predict(model.glmn, newdata = dat[-rowTrain,])
+confusionMatrix(data = as.factor(glmn.pred),reference = dat$diagnosis[-rowTrain],
+positive = "M")
+```
+
+
+
+#qda
+```{r}
+set.seed(2022)
+model.qda <- train(x = x1,
+y = y1,
+method = "qda",
+metric = "ROC",
+trControl = ctrl)
+
+qda.pred<- predict(model.qda , newdata = dat[-rowTrain,])
+confusionMatrix(data = as.factor(qda.pred),reference = dat$diagnosis[-rowTrain],
+positive = "M")
+
+
+
+```
+
+#NB
+```{r}
+nbGrid <- expand.grid(usekernel = c(FALSE,TRUE),
+fL = 1,
+adjust = seq(.2,5, by = .1))
+set.seed(11)
+model.nb <- train(x = x1,
+y = y1,
+method = "nb",
+tuneGrid = nbGrid,
+metric = "ROC",
+trControl = ctrl)
+nb.pred<- predict(model.nb  , newdata = dat[-rowTrain,])
+confusionMatrix(data = as.factor(nb.pred),reference = dat$diagnosis[-rowTrain],
+positive = "M")
+plot(model.nb)
+model.nb$bestTune
+```
+
+
+```{r}
+rs <- resamples(list(glmn = model.glmn,logistic=glm.fit, mars=mars.fit,lda=model.lda,
+ qda=model.qda, nb=model.nb ))
+
+
+summary(rs)
+bwplot(rs,metric="ROC")
+
+```
+
+```{r}
+dev.off()
+glm.pred <- predict(glm.fit, newdata = dat[-rowTrain,], type = "prob")[,2]
+glmn.pred <- predict(model.glmn, newdata = dat[-rowTrain,], type = "prob")[,2]
+lda.pred <- predict(model.lda, newdata = dat[-rowTrain,], type = "prob")[,2]
+mars.pred <- predict(mars.fit, newdata = dat[-rowTrain,], type = "prob")[,2]
+qda.pred<- predict(model.qda , newdata = dat[-rowTrain,], type = "prob")[,2]
+nb.pred<- predict(model.nb , newdata = dat[-rowTrain,], type = "prob")[,2]
+
+roc.glm <- roc(dat$diagnosis[-rowTrain], glm.pred)
+roc.glmn <- roc(dat$diagnosis[-rowTrain], glmn.pred)
+roc.lda <- roc(dat$diagnosis[-rowTrain], lda.pred)
+roc.mars <- roc(dat$diagnosis[-rowTrain], mars.pred)
+roc.qda <- roc(dat$diagnosis[-rowTrain],qda.pred)
+roc.nb <- roc(dat$diagnosis[-rowTrain],nb.pred)
+
+
+auc <- c(roc.glm$auc[1], roc.glmn$auc[1],
+roc.lda$auc[1], roc.qda$auc[1],roc.nb$auc[1], roc.mars$auc[1])
+modelNames <- c("glm","glmn","lda","mars","qda", "nb")
+ggroc(list(roc.glm, roc.glmn, roc.lda, roc.mars,roc.qda,roc.nb ), legacy.axes = TRUE) +
+scale_color_discrete(labels = paste0(modelNames, " (", round(auc,3),")"),
+name = "Models (AUC)") +
+geom_abline(intercept = 0, slope = 1, color = "grey")
+```
+
+```{r}
+vip(model.glmn$finalModel)
+Vi<-vi(model.glmn$finalModel)
+```
+
+
+      

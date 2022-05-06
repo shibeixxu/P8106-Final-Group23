@@ -1,2 +1,6 @@
 # P8106-Final-Group23
 P8106 Final Project for Group 23: Hao Zheng, Pei Hsin Lin, Shibei Xu
+Background
+Breast cancer is the second common cancer in women in the United States and is the second leading cause of cancer death in women. According to the American Cancer Society, incidence rates have increased by 0.5% per year recently. Early diagnosis often utilize a mammogram, an X-ray picture, to look for the signs of breast cancer and this requires regular screening since breast cancer takes years to be felt. Therefore, it’s important for women to take regular screening to be healthy or diagnosed with a benign tumor status before deterioration. 
+Motivation
+Based on the past studies and reports, breast cancer has been a serious threat to people’s health for a long period and has the trend to be more prevailing. This cancer taking years to be felt even makes it difficult to be diagnosed and treated. X-ray mammogram as the most regular and powerful diagnosis method, this paper wants to study some potential sign related to tumor status from the features in the figure. According to the model result, we may predict whether one will develop a malignant tumor to provide a early diagnosis reference.
