@@ -1,0 +1,50 @@
+---
+title: "Final Project P8106"
+author: "Group 23"
+date: "2022/5/6"
+output: html_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Library Load
+```{r include=TRUE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(visdat)
+library(caret)
+library(arsenal)
+library(missForest)
+library(glmnet)
+library(mlbench)
+library(pROC)
+library(pdp)
+library(vip)
+library(AppliedPredictiveModeling)
+library(randomForest)
+library(ranger)
+library(gbm)
+library(e1071)
+library(kernlab)
+```
+
+## Background
+Breast cancer is a disease in which malignant (cancer) cells form in the tissues of the breast. It is the most commonly detected cancer among women and the second most common reason for cancer death among women. It imposes a severe public health problem for society for its substantial burden and disparities in treatment, care, and outcome. 
+
+## Motivation
+According to the NCCN practice guideline for breast cancer, the diagnosis of breast cancer includes a physical examination, imaging, and tissue biopsy. Early detection of breast cancer leads to a higher and better survival rate, which indicates the significance of the screening. Therefore, it is important for us to understand what are the risk factors associated with the breast cancer
+
+## Data Description
+This dataset is designed to understand the possible predictor for type of Breast Cancer. It consists of 32 variables with 569 observations. The outcome of interest is a binary variable represents the type of breast cancer. The more specific information of the data can be found at [here](https://www.kaggle.com/datasets/yasserh/breast-cancer-dataset?resource=download).
+```{r include=FALSE}
+library(readr)
+breast_cancer <- read_csv("breast-cancer.csv")
+```
+
+
+
+
+
+
